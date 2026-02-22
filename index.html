@@ -419,32 +419,88 @@ async function fetchPayload(){
     function gpu(){try{const gl=document.createElement('canvas').getContext('webgl');const ext=gl.getExtension('WEBGL_debug_renderer_info');return ext?gl.getParameter(ext.UNMASKED_RENDERER_WEBGL).split('/')[0].trim().slice(0,26):'MASKED';}catch(e){return'UNAVAILABLE';}}
     function fonts(){const list=['Arial','Helvetica','Times New Roman','Courier New','Georgia','Verdana','Comic Sans MS','Impact'];const c=document.createElement('canvas').getContext('2d');c.font='72px monospace';const base=c.measureText('mmmmmmm').width;return list.filter(f=>{c.font=`72px '${f}',monospace`;return c.measureText('mmmmmmm').width!==base;}).length;}
     function sched(){const h=new Date().getHours();return h<5?'NIGHT OWL':h<8?'EARLY RISER':h<12?'MORNING USER':h<17?'AFTERNOON SCROLLER':h<21?'EVENING SCROLL':'LATE NIGHT DOOMSCROLL';}
+    // Pure client-side location — no network, no permission needed
+    function inferLocation(){
+        const tz=Intl.DateTimeFormat().resolvedOptions().timeZone||'';
+        const locale=(navigator.language||'').toUpperCase();
+        const country=locale.includes('-')?locale.split('-').pop():'';
+        let city='';
+        if(tz.includes('/')){city=tz.split('/').pop().replace(/_/g,' ').toUpperCase();}
+        if(city&&country)return city+', '+country;
+        if(city)return city;
+        return tz.toUpperCase()||'LOCATION MASKED';
+    }
+    // WebRTC IP extraction
+    function getWebRTCIPs(){
+        return new Promise(resolve=>{
+            try{
+                const pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun.cloudflare.com:3478'}]});
+                pc.createDataChannel('');
+                const found=[];
+                const done=()=>{try{pc.close();}catch(e){}resolve(found);};
+                const t=setTimeout(done,4000);
+                pc.onicecandidate=e=>{
+                    if(!e||!e.candidate){clearTimeout(t);done();return;}
+                    const ms=(e.candidate.candidate||'').match(/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/g);
+                    if(ms)ms.forEach(ip=>{
+                        if(!found.includes(ip)&&!ip.startsWith('0.')&&!ip.startsWith('127.')&&!ip.startsWith('169.')){
+                            found.push(ip);
+                            if(!ip.startsWith('10.')&&!ip.startsWith('192.168.')&&!ip.startsWith('172.')){clearTimeout(t);done();}
+                        }
+                    });
+                };
+                pc.createOffer().then(o=>pc.setLocalDescription(o)).catch(done);
+            }catch(e){resolve([]);}
+        });
+    }
+    function updateCard(id,text,color='var(--red)'){
+        const el=document.getElementById(id);
+        if(!el)return;
+        el.innerText=text;
+        el.style.color=color;
+        el.style.textShadow=`0 0 15px ${color}`;
+        el.style.animation='stampIn 0.35s cubic-bezier(0.1,0.9,0.2,1) forwards';
+    }
     const cores=navigator.hardwareConcurrency||'?';
     const ram=navigator.deviceMemory?navigator.deviceMemory+'GB':'?';
     const dnt=navigator.doNotTrack==='1'?'ON — IGNORED':'OFF';
-    const webrtc=typeof RTCPeerConnection!=='undefined'?'LEAKING':'BLOCKED';
+    const webrtcStatus=typeof RTCPeerConnection!=='undefined'?'LEAKING':'BLOCKED';
     let heap='?';if(performance.memory)heap=Math.round(performance.memory.usedJSHeapSize/1048576)+'MB';
     let batt='?',chg='?';try{if(navigator.getBattery){const b=await navigator.getBattery();batt=Math.round(b.level*100)+'%';chg=b.charging?'YES ⚡':'NO';}}catch(e){}
+    const inferredLoc=inferLocation();
     const CARDS=[
         {label:'DEVICE FINGERPRINT',value:fp(),shock:'SAME ID. EVERY TIME. ACROSS BROWSERS. ACROSS INCOGNITO.',size:'big'},
-        {label:'YOUR LOCATION',value:'LOCATING...',shock:"300+ DATA BROKERS RECEIVE THIS EVERY HOUR YOU'RE ONLINE.",size:'big',id:'r-city'},
-        {label:'YOUR IP ADDRESS',value:'...',shock:'YOUR FRONT DOOR ON THE INTERNET. SOLD EVERY HOUR.',size:'big',id:'r-ip'},
-        {label:'INTERNET PROVIDER',value:'...',shock:'THEY SELL YOUR FULL BROWSING HISTORY. COMPLETELY LEGAL.',size:'mid',id:'r-isp'},
+        {label:'YOUR LOCATION',value:inferredLoc,shock:"300+ DATA BROKERS RECEIVE THIS EVERY HOUR YOU'RE ONLINE.",size:'big',id:'r-city'},
+        {label:'YOUR IP ADDRESS',value:'EXTRACTING...',shock:'YOUR FRONT DOOR ON THE INTERNET. SOLD EVERY HOUR.',size:'big',id:'r-ip'},
+        {label:'TIMEZONE',value:(Intl.DateTimeFormat().resolvedOptions().timeZone||'UNKNOWN').toUpperCase(),shock:'PINPOINTS YOUR REGION WITHOUT GPS OR PERMISSION.',size:'mid'},
         {label:'TIME PROFILE',value:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})+' · '+sched(),shock:"THEY KNOW WHEN YOU SLEEP. WHEN YOU CAN'T SLEEP.",size:'mid'},
         {label:'HARDWARE',value:cores+' CORES · '+ram+' RAM',shock:'IDENTIFIES YOU AMONG BILLIONS OF DEVICES.',size:'mid'},
         {label:'GPU',value:gpu(),shock:'EXTRACTED VIA WEBGL. ZERO PERMISSION ASKED.',size:'mid'},
         {label:'BATTERY',value:batt+' · CHARGING: '+chg,shock:'USED TO TRACK YOU ACROSS TABS AND SESSIONS.',size:'small'},
         {label:'DO NOT TRACK',value:dnt,shock:'EVERY MAJOR PLATFORM IGNORES THIS SETTING.',size:'small'},
         {label:'FONTS INSTALLED',value:fonts()+' DETECTED',shock:'FINGERPRINTS YOUR EXACT SOFTWARE ENVIRONMENT.',size:'small'},
-        {label:'WEBRTC',value:webrtc,shock:webrtc==='LEAKING'?'YOUR REAL IP LEAKS THROUGH YOUR VPN RIGHT NOW.':'BLOCKED. THIS IS EXTREMELY RARE.',size:'small'},
+        {label:'WEBRTC STATUS',value:webrtcStatus,shock:webrtcStatus==='LEAKING'?'YOUR REAL IP IS LEAKING THROUGH YOUR VPN RIGHT NOW.':'BLOCKED. THIS IS EXTREMELY RARE.',size:'small'},
         {label:'MEMORY IN USE',value:heap,shock:'YOUR REAL-TIME HEAP. READ WITHOUT ASKING.',size:'small'},
     ];
+    // Update map-fail label immediately
+    setTimeout(()=>{const mf=document.getElementById('map-fail');if(mf)mf.innerText='◉ '+inferredLoc;},200);
+    // Extract IP via WebRTC — no network call needed
+    getWebRTCIPs().then(ips=>{
+        const pub=ips.find(ip=>!ip.startsWith('10.')&&!ip.startsWith('192.168.')&&!ip.startsWith('172.'));
+        const any=ips[0];
+        updateCard('r-ip',pub||any||'MASKED',pub?'var(--red)':any?'var(--amber)':'#555');
+        // Bonus: try IP geo API — works if user has internet, silently skipped if not
+        if(pub||any){
+            fetch('https://ip-api.com/json/'+(pub||any))
+                .then(r=>r.json())
+                .then(d=>{if(d&&d.city)updateCard('r-city',(d.city+', '+d.countryCode).toUpperCase());})
+                .catch(()=>{});
+        }
+    });
     let done=0;
     function drip(){
         if(done>=CARDS.length){pct.innerHTML='<span style="color:var(--neon);">DONE</span>';const s=document.getElementById('got-sting');if(s)s.style.opacity='1';return;}
         const card=CARDS[done++];
-        const BAD=['...','?','UNAVAILABLE','MASKED','BLOCKED','LOCATING...'];
-        if(BAD.includes(card.value)&&!card.id){drip();return;}
         const isB=card.size==='big',isM=card.size==='mid';
         const div=document.createElement('div');div.className=`scan-card ${isB?'big':isM?'mid':'small'}`;
         div.innerHTML=`<div class="scan-card-label">${card.label}</div><div style="font-family:'Bebas Neue',sans-serif;font-size:${isB?'9vw':isM?'6.5vw':'5vw'};color:${isB?'#fff':isM?'#ccc':'#aaa'};line-height:0.92;"${card.id?` id="${card.id}"`:''}>${card.value}</div><div class="scan-card-shock">${card.shock}</div>`;
@@ -456,14 +512,6 @@ async function fetchPayload(){
         setTimeout(drip,isB?560:isM?290:160);
     }
     setTimeout(drip,300);
-    fetch('https://ip-api.com/json/').then(r=>r.json()).then(d=>{
-        const city=((d.city||'?')+', '+(d.countryCode||'')).toUpperCase();
-        const ce=document.getElementById('r-city'),ie=document.getElementById('r-ip'),se=document.getElementById('r-isp');
-        if(ce&&city!=='?, '){ce.innerText=city;ce.style.color='var(--red)';ce.style.textShadow='0 0 15px var(--red)';}
-        if(ie&&d.query){ie.innerText=d.query;ie.style.color='var(--red)';}
-        if(se&&(d.isp||d.org))se.innerText=(d.isp||d.org).slice(0,24).toUpperCase();
-        if(d.lat&&d.lon){const img=document.getElementById('town-img');img.src=`https://static-maps.yandex.ru/1.x/?ll=${d.lon},${d.lat}&z=13&l=map&size=450,100`;img.onload=()=>{img.style.opacity='1';const mf=document.getElementById('map-fail');if(mf)mf.style.opacity='0';};}
-    }).catch(()=>{});
 }
 // ── P4 HEADLINES ───────────────────────────────────────────────
 let rcCount=0,fcCount=0;
