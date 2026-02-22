@@ -733,7 +733,15 @@ function buildProtocol(){
     const list=document.getElementById('protocol-list');
     PROTOCOLS.forEach((p,i)=>{const div=document.createElement('div');div.className='protocol-item';div.style.animationDelay=(i*180)+'ms';div.innerHTML=`<div class="protocol-num">${p.n}</div><div class="protocol-text"><strong>${p.title}</strong>${p.body}</div>`;list.appendChild(div);});
 }
-function navigateToOutro(){navigate(1);}
+function navigateToOutro(){
+    // Direct jump to P12 — bypass navigate middleware entirely
+    soundSwipe();
+    const fromIdx=currentPage;
+    currentPage=11;
+    transitionPages(fromIdx,11,1);
+    updateDots();
+    onPageEnter(11);
+}
 // ── P11 CINEMATIC ──────────────────────────────────────────────
 let cineInited=false;
 function buildCinematic(){
@@ -815,34 +823,42 @@ function buildCinematic(){
 let outroInited=false;
 function buildOutro(){
     if(outroInited)return;outroInited=true;
-    document.getElementById('header').style.transition='opacity 0.8s';document.getElementById('header').style.opacity='0';
+    // Fade out chrome smoothly
+    document.getElementById('header').style.transition='opacity 0.6s';
+    document.getElementById('header').style.opacity='0';
     document.getElementById('progress-bar').style.opacity='0';
     document.getElementById('global-reminder').style.opacity='0';
-    const canvas=document.getElementById('p12-stars');
-    canvas.width=window.innerWidth;canvas.height=window.innerHeight;
-    const ctx=canvas.getContext('2d');
-    const stars=[];
-    for(let i=0;i<220;i++)stars.push({x:Math.random()*canvas.width,y:Math.random()*canvas.height,r:Math.random()*1.5+0.2,phase:Math.random()*Math.PI*2,speed:0.005+Math.random()*0.02});
-    function drawStars(t){
-        ctx.clearRect(0,0,canvas.width,canvas.height);
-        stars.forEach(s=>{
-            const o=0.1+0.5*Math.abs(Math.sin(s.phase+t*s.speed));
-            ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);
-            ctx.fillStyle=`rgba(0,255,65,${o*0.45})`;ctx.fill();
-        });
-        if(currentPage===11)requestAnimationFrame(t2=>drawStars(t2/100));
-    }
-    requestAnimationFrame(t=>drawStars(t/100));
-    const prefix=document.getElementById('p12-prefix');
-    const logo=document.getElementById('p12-logo');
-    const thanks=document.getElementById('p12-thanks');
-    const line=document.getElementById('p12-line');
-    const sub=document.getElementById('p12-sub');
-    setTimeout(()=>prefix.style.opacity='1',400);
-    setTimeout(()=>logo.style.opacity='1',1400);
-    setTimeout(()=>thanks.style.opacity='1',2700);
-    setTimeout(()=>line.style.width='70%',3300);
-    setTimeout(()=>sub.style.opacity='1',4200);
+    // Wait for transition to finish before starting canvas + reveals
+    setTimeout(()=>{
+        const canvas=document.getElementById('p12-stars');
+        canvas.width=window.innerWidth;canvas.height=window.innerHeight;
+        const ctx=canvas.getContext('2d');
+        const stars=[];
+        for(let i=0;i<220;i++)stars.push({x:Math.random()*canvas.width,y:Math.random()*canvas.height,r:Math.random()*1.5+0.2,phase:Math.random()*Math.PI*2,speed:0.005+Math.random()*0.02});
+        function drawStars(t){
+            ctx.clearRect(0,0,canvas.width,canvas.height);
+            stars.forEach(s=>{
+                const o=0.1+0.5*Math.abs(Math.sin(s.phase+t*s.speed));
+                ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);
+                ctx.fillStyle=`rgba(0,255,65,${o*0.45})`;ctx.fill();
+            });
+            if(currentPage===11)requestAnimationFrame(t2=>drawStars(t2/100));
+        }
+        requestAnimationFrame(t=>drawStars(t/100));
+        // Fast cinematic reveals
+        const prefix=document.getElementById('p12-prefix');
+        const logo=document.getElementById('p12-logo');
+        const thanks=document.getElementById('p12-thanks');
+        const line=document.getElementById('p12-line');
+        const sub=document.getElementById('p12-sub');
+        setTimeout(()=>prefix.style.opacity='1',100);
+        setTimeout(()=>logo.style.opacity='1',600);
+        setTimeout(()=>thanks.style.opacity='1',1400);
+        setTimeout(()=>line.style.width='70%',1900);
+        setTimeout(()=>sub.style.opacity='1',2600);
+        setTimeout(()=>startLogoBreath(),2000);
+        setTimeout(()=>startMatrixRain(),800);
+    },320);
 }
 // ── P10 CALLBACK ──────────────────────────────────────────────
 function buildCallback(){
@@ -964,7 +980,6 @@ window.onPageEnter=function(pg){
     soundForPage(pg);
     morphHeader(pg);
     _origOnPageEnter(pg);
-    if(pg===11){setTimeout(startLogoBreath,2800);setTimeout(startMatrixRain,600);}
 };
 // ── P12 LOGO BREATH ────────────────────────────────────────────
 function startLogoBreath(){const logo=document.getElementById('p12-logo');if(logo)logo.style.animation='logoBreath 4s ease-in-out infinite';}
@@ -1121,4 +1136,3 @@ updateDots();
 </script>
 </body>
 </html>
-
